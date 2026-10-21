@@ -268,3 +268,13 @@ class DepthFirstSearch(SearchAlgorithm):
                            expandidos, generados, t0)
 
     
+def ejecutar_todos(env: GridEnvironment, peso_riesgo: float = 1.0) -> Dict[str, SearchResult]:
+    """Corre las cinco estrategias sobre el mismo entorno (para métricas y visualización)."""
+    algoritmos = [
+        BreadthFirstSearch(env, peso_riesgo),
+        DepthFirstSearch(env, peso_riesgo),
+        DijkstraSearch(env, peso_riesgo),
+        AStarSearch(env, heuristic_manhattan, peso_riesgo),
+        GreedyBestFirstSearch(env, heuristic_manhattan, peso_riesgo),
+    ]
+    return {a.nombre: a.buscar() for a in algoritmos}

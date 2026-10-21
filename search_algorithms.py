@@ -99,3 +99,65 @@ class SearchAlgorithm:
 
     def buscar(self) -> SearchResult:
         raise NotImplementedError("Debe implementarse en una subclase específica.")
+
+
+
+class BreadthFirstSearch(SearchAlgorithm):
+    """BFS: minimiza pasos; NO considera el riesgo al decidir."""
+    nombre = "BFS"
+
+    def buscar(self) -> SearchResult:
+        t0 = time.perf_counter()
+        err = self._validar_extremos()
+        if err:
+            return err
+        start, goal = self.env.start, self.env.goal
+        padre = {start: None}
+        cola = deque([start])
+        expandidos, generados = 0, 1
+        while cola:
+            actual = cola.popleft()
+            expandidos += 1
+            if actual == goal:
+                return self._exito(padre, expandidos, generados, t0)
+            for v in self.env.obtener_vecinos(actual):
+                if v not in padre:
+                    padre[v] = actual
+                    cola.append(v)
+                    generados += 1
+        return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
+                           expandidos, generados, t0)
+
+
+class DijkstraSearch(SearchAlgorithm):
+    """Dijkstra / costo uniforme: óptimo respecto al costo ponderado por riesgo."""
+    nombre = "Dijkstra"
+
+    def buscar(self) -> SearchResult:
+        t0 = time.perf_counter()
+        err = self._validar_extremos()
+        if err:
+            return err
+        start, goal = self.env.start, self.env.goal
+        g = {start: 0.0}
+        padre = {start: None}
+        cerrados = set()
+        frontera = [(0.0, start)]
+        expandidos, generados = 0, 1
+        while frontera:
+            costo, actual = heapq.heappop(frontera)
+            if actual in cerrados:
+                continue
+            cerrados.add(actual)
+            expandidos += 1
+            if actual == goal:
+                return self._exito(padre, expandidos, generados, t0)
+            for v in self.env.obtener_vecinos(actual):
+                nuevo = costo + self.calcular_costo_paso(actual, v)
+                if nuevo < g.get(v, float("inf")):
+                    g[v] = nuevo
+                    padre[v] = actual
+                    heapq.heappush(frontera, (nuevo, v))
+                    generados += 1
+        return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
+                           expandidos, generados, t0)

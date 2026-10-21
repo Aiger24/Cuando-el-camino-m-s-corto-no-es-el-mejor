@@ -1,121 +1,101 @@
 """
-Módulo de Algoritmos de Búsqueda y Costos (Fase 2).
-Esqueleto modular para implementación de algoritmos informados y no informados.
+Módulo de Algoritmos de Búsqueda y Costos (Fase 2 - Integrante 2).
+
+Costo de entrar a una celda: 1 + peso_riesgo * (nivel - 1)
+  peso_riesgo = 0 -> solo distancia; peso_riesgo > 0 -> se penalizan zonas de riesgo.
+Si no hay ruta, ningún algoritmo lanza excepción: devuelve success=False y un status.
 """
 
-from typing import List, Tuple, Dict, Any, Optional, Callable
+import heapq
+import math
+import time
+from collections import deque
 from dataclasses import dataclass
-from environment import GridEnvironment, CellType
+from typing import Callable, Dict, List, Optional, Tuple
+
+from environment import GridEnvironment
+
+Coord = Tuple[int, int]
+
+STATUS_OK = "RUTA_ENCONTRADA"
+STATUS_UNREACHABLE = "REFUGIO_INACCESIBLE"
+STATUS_BAD_START = "INICIO_INVALIDO"
 
 
 @dataclass
 class SearchResult:
-    """Estructura de datos para almacenar el resultado de una búsqueda."""
-    path: Optional[List[Tuple[int, int]]]  # Secuencia de coordenadas (r, c) desde start hasta goal
-    total_cost: float                      # Costo acumulado considerando niveles de riesgo
-    expanded_nodes: int                   # Cantidad de nodos explorados durante la búsqueda
-    execution_time: float                 # Tiempo de ejecución en segundos
-    success: bool                         # True si encontró ruta, False si no hay camino
+    path: Optional[List[Coord]]   # start -> goal; None si no hay ruta
+    total_cost: float             # costo ponderado por riesgo
+    expanded_nodes: int           # nodos procesados
+    execution_time: float         # segundos
+    success: bool
+    status: str = ""
+    message: str = ""
+    generated_nodes: int = 0      # nodos insertados en la frontera
+    steps: int = 0                # longitud de la ruta
+    risk_total: float = 0.0       # suma de (nivel - 1) a lo largo de la ruta
+    algorithm: str = ""
 
 
-# ==========================================
-# FUNCIONES HEURÍSTICAS
-# ==========================================
-
-def heuristic_manhattan(a: Tuple[int, int], b: Tuple[int, int]) -> float:
-    """
-    Heurística de distancia Manhattan para cuadrícula 4-direccional.
-    TODO: Completar cálculo |x1 - x2| + |y1 - y2|.
-    """
-    # TODO: Implementar cálculo de distancia Manhattan
-    pass
+def heuristic_manhattan(a: Coord, b: Coord) -> float:
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
-def heuristic_euclidean(a: Tuple[int, int], b: Tuple[int, int]) -> float:
-    """
-    Heurística de distancia Euclidiana.
-    TODO: Completar cálculo sqrt((x1 - x2)^2 + (y1 - y2)^2).
-    """
-    # TODO: Implementar cálculo de distancia Euclidiana
-    pass
+def heuristic_euclidean(a: Coord, b: Coord) -> float:
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
-
-# ==========================================
-# CLASE BASE / ALGORITMOS DE BÚSQUEDA
-# ==========================================
 
 class SearchAlgorithm:
-    """Clase base o interfaz para los algoritmos de búsqueda en el entorno."""
+    nombre = "SearchAlgorithm"
 
-    def __init__(self, env: GridEnvironment):
+    def __init__(self, env: GridEnvironment, peso_riesgo: float = 1.0):
+        if peso_riesgo < 0:
+            raise ValueError("peso_riesgo debe ser >= 0 (si no, A* deja de ser óptimo).")
         self.env = env
+        self.peso_riesgo = peso_riesgo
 
-    def calcular_costo_paso(self, origen: Tuple[int, int], destino: Tuple[int, int]) -> float:
-        """
-        Calcula el costo de transición entre dos celdas considerando el riesgo del destino.
-        TODO: Definir ponderación del costo base y nivel de riesgo.
-        """
-        # TODO: Implementar lógica de cálculo de costo por riesgo
-        pass
+    def calcular_costo_paso(self, origen: Coord, destino: Coord) -> float:
+        r, c = destino
+        if self.env.esta_bloqueada(r, c):
+            return float("inf")
+        return 1.0 + self.peso_riesgo * (self.env.grid[r][c] - 1.0)
+
+    def costo_de_ruta(self, ruta: List[Coord]) -> float:
+        return sum(self.calcular_costo_paso(a, b) for a, b in zip(ruta, ruta[1:]))
+
+    def riesgo_de_ruta(self, ruta: List[Coord]) -> float:
+        return sum(self.env.grid[r][c] - 1.0 for r, c in ruta[1:])
+
+    def _validar_extremos(self) -> Optional[SearchResult]:
+        sr, sc = self.env.start
+        gr, gc = self.env.goal
+        if self.env.esta_bloqueada(sr, sc):
+            return self._fallo(STATUS_BAD_START, "El punto inicial está bloqueado")
+        if self.env.esta_bloqueada(gr, gc):
+            return self._fallo(STATUS_UNREACHABLE, "El refugio está bloqueado")
+        return None
+
+    def _fallo(self, status: str, mensaje: str, expandidos: int = 0,
+               generados: int = 0, t0: Optional[float] = None) -> SearchResult:
+        return SearchResult(
+            path=None, total_cost=float("inf"), expanded_nodes=expandidos,
+            execution_time=(time.perf_counter() - t0) if t0 is not None else 0.0,
+            success=False, status=status, message=mensaje,
+            generated_nodes=generados, algorithm=self.nombre,
+        )
+
+    def _exito(self, padre: Dict[Coord, Optional[Coord]], expandidos: int,
+               generados: int, t0: float) -> SearchResult:
+        ruta = [self.env.goal]
+        while padre[ruta[-1]] is not None:
+            ruta.append(padre[ruta[-1]])
+        ruta.reverse()
+        return SearchResult(
+            path=ruta, total_cost=self.costo_de_ruta(ruta), expanded_nodes=expandidos,
+            execution_time=time.perf_counter() - t0, success=True, status=STATUS_OK,
+            message="Ruta encontrada", generated_nodes=generados, steps=len(ruta) - 1,
+            risk_total=self.riesgo_de_ruta(ruta), algorithm=self.nombre,
+        )
 
     def buscar(self) -> SearchResult:
-        """
-        Método plantilla que debe ser implementado por cada algoritmo específico.
-        """
         raise NotImplementedError("Debe implementarse en una subclase específica.")
-
-
-class BreadthFirstSearch(SearchAlgorithm):
-    """Búsqueda en Anchura (BFS) - No informada."""
-
-    def buscar(self) -> SearchResult:
-        # TODO: Implementar BFS usando cola FIFO (collections.deque)
-        pass
-
-
-class DepthFirstSearch(SearchAlgorithm):
-    """Búsqueda en Profundidad (DFS) - No informada."""
-
-    def buscar(self) -> SearchResult:
-        # TODO: Implementar DFS usando pila LIFO
-        pass
-
-
-class DijkstraSearch(SearchAlgorithm):
-    """Algoritmo de Dijkstra / Búsqueda de Costo Uniforme (UCS)."""
-
-    def buscar(self) -> SearchResult:
-        # TODO: Implementar Dijkstra usando cola de prioridad (heapq) y costo acumulado
-        pass
-
-
-class AStarSearch(SearchAlgorithm):
-    """Algoritmo de búsqueda informada A* (A-Estrella)."""
-
-    def __init__(
-        self,
-        env: GridEnvironment,
-        heuristic_fn: Callable[[Tuple[int, int], Tuple[int, int]], float] = heuristic_manhattan
-    ):
-        super().__init__(env)
-        self.heuristic_fn = heuristic_fn
-
-    def buscar(self) -> SearchResult:
-        # TODO: Implementar A* combinando g(n) + h(n) con cola de prioridad (heapq)
-        pass
-
-
-class GreedyBestFirstSearch(SearchAlgorithm):
-    """Búsqueda Voraz Primero el Mejor (Greedy Best-First Search)."""
-
-    def __init__(
-        self,
-        env: GridEnvironment,
-        heuristic_fn: Callable[[Tuple[int, int], Tuple[int, int]], float] = heuristic_manhattan
-    ):
-        super().__init__(env)
-        self.heuristic_fn = heuristic_fn
-
-    def buscar(self) -> SearchResult:
-        # TODO: Implementar Greedy evaluando únicamente f(n) = h(n)
-        pass

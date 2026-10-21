@@ -161,3 +161,110 @@ class DijkstraSearch(SearchAlgorithm):
                     generados += 1
         return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
                            expandidos, generados, t0)
+    
+class AStarSearch(SearchAlgorithm):
+    """A*: f = g + h. Con heurística admisible da el mismo costo que Dijkstra."""
+    nombre = "A*"
+
+    def __init__(self, env: GridEnvironment,
+                 heuristic_fn: Callable[[Coord, Coord], float] = heuristic_manhattan,
+                 peso_riesgo: float = 1.0):
+        super().__init__(env, peso_riesgo)
+        self.heuristic_fn = heuristic_fn
+
+    def buscar(self) -> SearchResult:
+        t0 = time.perf_counter()
+        err = self._validar_extremos()
+        if err:
+            return err
+        start, goal = self.env.start, self.env.goal
+        g = {start: 0.0}
+        padre = {start: None}
+        cerrados = set()
+        frontera = [(self.heuristic_fn(start, goal), 0.0, start)]
+        expandidos, generados = 0, 1
+        while frontera:
+            _, costo, actual = heapq.heappop(frontera)
+            if actual in cerrados:
+                continue
+            cerrados.add(actual)
+            expandidos += 1
+            if actual == goal:
+                return self._exito(padre, expandidos, generados, t0)
+            for v in self.env.obtener_vecinos(actual):
+                nuevo = costo + self.calcular_costo_paso(actual, v)
+                if nuevo < g.get(v, float("inf")):
+                    g[v] = nuevo
+                    padre[v] = actual
+                    heapq.heappush(frontera, (nuevo + self.heuristic_fn(v, goal), nuevo, v))
+                    generados += 1
+        return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
+                           expandidos, generados, t0)
+
+
+class GreedyBestFirstSearch(SearchAlgorithm):
+    """Voraz: f = h. Rápido, pero ignora costo acumulado y riesgo."""
+    nombre = "Greedy"
+
+    def __init__(self, env: GridEnvironment,
+                 heuristic_fn: Callable[[Coord, Coord], float] = heuristic_manhattan,
+                 peso_riesgo: float = 1.0):
+        super().__init__(env, peso_riesgo)
+        self.heuristic_fn = heuristic_fn
+
+    def buscar(self) -> SearchResult:
+        t0 = time.perf_counter()
+        err = self._validar_extremos()
+        if err:
+            return err
+        start, goal = self.env.start, self.env.goal
+        padre = {start: None}
+        vistos = {start}
+        frontera = [(self.heuristic_fn(start, goal), start)]
+        expandidos, generados = 0, 1
+        while frontera:
+            _, actual = heapq.heappop(frontera)
+            expandidos += 1
+            if actual == goal:
+                return self._exito(padre, expandidos, generados, t0)
+            for v in self.env.obtener_vecinos(actual):
+                if v not in vistos:
+                    vistos.add(v)
+                    padre[v] = actual
+                    heapq.heappush(frontera, (self.heuristic_fn(v, goal), v))
+                    generados += 1
+        return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
+                           expandidos, generados, t0)
+
+
+class DepthFirstSearch(SearchAlgorithm):
+    """DFS: devuelve la primera ruta que encuentra; suele ser larga y arriesgada."""
+    nombre = "DFS"
+
+    def buscar(self) -> SearchResult:
+        t0 = time.perf_counter()
+        err = self._validar_extremos()
+        if err:
+            return err
+        start, goal = self.env.start, self.env.goal
+        padre = {start: None}
+        pila = [start]
+        visitados = set()
+        expandidos, generados = 0, 1
+        while pila:
+            actual = pila.pop()
+            if actual in visitados:
+                continue
+            visitados.add(actual)
+            expandidos += 1
+            if actual == goal:
+                return self._exito(padre, expandidos, generados, t0)
+            for v in reversed(self.env.obtener_vecinos(actual)):
+                if v not in visitados:
+                    padre[v] = actual
+                    pila.append(v)
+                    generados += 1
+        return self._fallo(STATUS_UNREACHABLE, "No existe ruta transitable hasta el refugio",
+                           expandidos, generados, t0)
+
+    
